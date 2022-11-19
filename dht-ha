@@ -57,6 +57,8 @@ def onConnect(client, userdata, flags, rc):
     publishDeviceHaConfig(sensorValueName="Temperature", sensorClass="temperature", sensorUnit="°C")
     publishDeviceHaConfig(sensorValueName="Humidity", sensorClass="humidity", sensorUnit="%")
 
+def onDisconnect(client, userdata, rc):
+    pass
 
 def onPublish(client, userdata, mid):
     debugPrint("onPublish")
@@ -67,11 +69,14 @@ def connect():
 
     mqttClient = paho.Client(mqttClientID)
     mqttClient.on_connect = onConnect
+    mqttClient.on_disconnect = onDisconnect
     mqttClient.on_publish = onPublish
     mqttClient.username_pw_set(username=mqttUsername, password=mqttPassword)
     mqttClient.will_set(topic=availabilityTopic, payload=deviceNotAvailable, retain=True)
+    mqttClient.reconnect_delay_set()
 
     mqttClient.connect(host=mqttHostname)
+    mqttClient.loop_start()
 
 
 
@@ -195,8 +200,6 @@ lastTime = 0
 count=0
 while (True):
     currentTime = datetime.now().timestamp()
-
-    mqttClient.loop()
 
     if (currentTime - lastTime >= updateInterval):
         debugPrint("# Update Interval #")
