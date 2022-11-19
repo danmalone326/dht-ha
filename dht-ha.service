@@ -1,0 +1,15 @@
+# systemd service file
+# place in /etc/systemd/system/
+[Unit]
+Description=DHT22 MQTT Home Assistant Discovery Service
+Requires=network.target
+
+[Service]
+Type=idle
+User=pi
+WorkingDirectory=/home/pi/dht-ha
+ExecStart=/home/pi/dht-ha/dht-ha
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
