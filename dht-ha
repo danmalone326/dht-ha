@@ -206,3 +206,5 @@ while (True):
         publishSensor()
         count += 1
         lastTime = currentTime
+        
+    time.sleep(1)
