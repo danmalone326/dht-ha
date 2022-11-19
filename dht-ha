@@ -200,6 +200,9 @@ def publishSensor(sensorData):
 
     publish(topic=valuesTopic,payload=payload)
 
+# remove outliers and return average of remaining
+# https://builtin.com/data-science/how-to-find-outliers-with-iqr
+# probably overkill, but was fun to learn
 def betterAverage(data):
     data.sort()
     q1, q3 = numpy.percentile(data, [25, 75])
