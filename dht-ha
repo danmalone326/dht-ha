@@ -1,0 +1,205 @@
+#!/usr/bin/python3
+import Adafruit_DHT
+import os
+import time
+from datetime import datetime
+import json
+import socket
+import paho.mqtt.client as paho
+import configparser
+
+debug = False
+
+config = configparser.ConfigParser()
+config.read(os.path.basename(__file__) + ".ini")
+mqttHostname = config["config"]["mqttHostname"]
+mqttUsername = config["config"]["mqttUsername"]
+mqttPassword = config["config"]["mqttPassword"]
+deviceFriendlyNamePrefix = config["config"]["deviceFriendlyNamePrefix"]
+
+# Define constants
+# Sensor type (Adafruit_DHT.DHT11 or Adafruit_DHT.DHT22)
+DHT_SENSOR = Adafruit_DHT.DHT22
+
+# Configure GPIO pins
+DHT22_PIN = 4
+
+# how often in seconds data should be updated
+updateInterval = 60
+
+deviceFriendlyName = deviceFriendlyNamePrefix + " RPi DHT22"
+
+hostname = socket.gethostname()
+deviceID = hostname+"-dht"
+
+mqttTopicPrefix = hostname+"/dht"
+
+availabilityTopic = mqttTopicPrefix + "/availability"
+valuesTopic = mqttTopicPrefix + "/sensor"
+
+haTopicPrefix = "homeassistant/sensor"
+
+deviceAvailable = "Online"
+deviceNotAvailable = "Offline"
+
+mqttClient = None
+mqttClientID = deviceID
+
+def debugPrint(o):
+    if debug:
+        print(o)
+
+
+# callbacks
+def onConnect(client, userdata, flags, rc):
+    debugPrint("onConnect")
+    publishAvailability(availability=deviceAvailable)
+    publishDeviceHaConfig(sensorValueName="Temperature", sensorClass="temperature", sensorUnit="°C")
+    publishDeviceHaConfig(sensorValueName="Humidity", sensorClass="humidity", sensorUnit="%")
+
+
+def onPublish(client, userdata, mid):
+    debugPrint("onPublish")
+
+
+def connect():
+    global mqttClient
+
+    mqttClient = paho.Client(mqttClientID)
+    mqttClient.on_connect = onConnect
+    mqttClient.on_publish = onPublish
+    mqttClient.username_pw_set(username=mqttUsername, password=mqttPassword)
+    mqttClient.will_set(topic=availabilityTopic, payload=deviceNotAvailable, retain=True)
+
+    mqttClient.connect(host=mqttHostname)
+
+
+
+def publish (topic, payload=None, qos=0, retain=False):
+    global mqttClient
+
+    if (type(payload) is dict):
+        convertedPayload = json.dumps(payload)
+    else:
+        convertedPayload = payload
+
+    result = mqttClient.publish(topic=topic, payload=convertedPayload, qos=qos, retain=retain)
+
+    debugPrint(topic)
+    if (qos != 0):
+        debugPrint("qos: %d" % qos)
+    if (retain):
+        debugPrint("retain: True")
+    if(payload):
+        # print(json.dumps(payload,indent=4))
+        debugPrint(convertedPayload)
+    else:
+        debugPrint('---DELETE---')
+
+
+# Home Assistant discovery config for sensor
+# {
+#     "unique_id": "hostname-dht-Humidity",
+#     "name": "Friendly Name Humidity",
+#     "state_topic": "hostname/dht/sensor",
+#     "availability_topic": "hostname/dht/availability",
+#     "payload_available": "Online",
+#     "payload_not_available": "Offline",
+#     "force_update": true,
+#     "value_template": "{{value_json['Analog']['Humidity']}}",
+#     "device": {
+#         "identifiers": [
+#             "hostname-dht"
+#         ],
+#         "name": "Friendly Name RPi DHT22",
+#         "model": "HomeAssistant Discovery for DHT22 on RPi",
+#         "manufacturer": "Dan"
+#     },
+#     "device_class": "humidity",
+#     "unit_of_measurement": "%"
+# }
+
+def deviceConfig():
+    return {
+        "identifiers":[
+            deviceID
+        ],
+        "name": deviceFriendlyName,
+        "model": "HomeAssistant Discovery for DHT22 on RPi",
+        "manufacturer": "Dan"
+    }
+
+def publishDeviceHaConfig(sensorValueName,sensorClass,sensorUnit):
+    uniqueID = deviceID + "-" + sensorValueName
+
+    haConfigTopic = haTopicPrefix + "/" + uniqueID + "/config"
+
+    configPayload = {
+        "unique_id": uniqueID,
+        "name": deviceFriendlyNamePrefix + " " + sensorValueName,
+        "state_topic": valuesTopic,
+        "availability_topic": availabilityTopic,
+        "payload_available": deviceAvailable,
+        "payload_not_available": deviceNotAvailable,
+        "force_update": True,
+        "value_template": "{{value_json['Analog']['" + sensorValueName + "']}}",
+        "device": deviceConfig()
+    }
+
+    if (sensorClass):
+        configPayload["device_class"] = sensorClass
+
+    if (sensorUnit):
+        configPayload["unit_of_measurement"] = sensorUnit
+    
+    publish(topic=haConfigTopic, payload=configPayload, retain=True)
+
+def unpublishDeviceHaConfig(sensorValueName,sensorClass,sensorUnit):
+    uniqueID = deviceID + "-" + sensorValueName
+    haConfigTopic = haTopicPrefix + "/" + uniqueID + "/config"
+    publish(topic=haConfigTopic, payload="")
+
+def publishAvailability(availability):
+    publish(topic=availabilityTopic,payload=deviceAvailable,retain=True)
+
+def unpublishAvailability(availability):
+    publish(topic=availabilityTopic,payload="",retain=True)
+
+
+# Sensor values message
+# {
+#     "Time": "2022-11-18T18:01:56",
+#     "Analog": {
+#         "Temperature": 19.8,
+#         "Humidity": 33.1
+#     }
+# }
+def publishSensor():
+    sensorTime = datetime.now().isoformat(timespec="seconds")
+    humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT22_PIN)
+
+    sensorData = {
+        "Time": sensorTime,
+        "Analog": {
+            "Temperature": round(temperature,1),
+            "Humidity": round(humidity,1)
+        }
+    }
+
+    publish(topic=valuesTopic,payload=sensorData)
+
+connect()
+debugPrint("after connect()")
+
+lastTime = 0
+count=0
+while (True):
+    currentTime = datetime.now().timestamp()
+
+    mqttClient.loop()
+
+    if (currentTime - lastTime >= updateInterval):
+        debugPrint("# Update Interval #")
+        publishSensor()
+        count += 1
+        lastTime = currentTime
