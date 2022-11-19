@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import Adafruit_DHT
+import numpy
 import os
 import time
 from datetime import datetime
@@ -24,8 +25,11 @@ DHT_SENSOR = Adafruit_DHT.DHT22
 # Configure GPIO pins
 DHT22_PIN = 4
 
-# how often in seconds data should be updated
-updateInterval = 60
+# how often in seconds sensor should be read
+readInterval = 5
+
+# how often in seconds data should be published
+publishInterval = 60
 
 deviceFriendlyName = deviceFriendlyNamePrefix + " RPi DHT22"
 
@@ -179,32 +183,69 @@ def unpublishAvailability(availability):
 #         "Humidity": 33.1
 #     }
 # }
-def publishSensor():
-    sensorTime = datetime.now().isoformat(timespec="seconds")
-    humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT22_PIN)
+def publishSensor(sensorData):
+    publishTime = datetime.now().isoformat(timespec="seconds")
 
-    sensorData = {
-        "Time": sensorTime,
+    temperature = betterAverage(sensorData["temperatureList"])
+    humidity = betterAverage(sensorData["humidityList"])
+
+    payload = {
+        "Time": publishTime,
+        "Reads": sensorData["reads"],
         "Analog": {
             "Temperature": round(temperature,1),
             "Humidity": round(humidity,1)
         }
     }
 
-    publish(topic=valuesTopic,payload=sensorData)
+    publish(topic=valuesTopic,payload=payload)
+
+def betterAverage(data):
+    data.sort()
+    q1, q3 = numpy.percentile(data, [25, 75])
+    iqr = q3 - q1
+    lowerBound = q1 - iqr*1.5
+    upperBound = q3 + iqr*1.5
+    outliersRemoved = []
+    for i in data:
+        if (i>=lowerBound and i<=upperBound):
+            outliersRemoved.append(i)
+    average = sum(outliersRemoved)/len(outliersRemoved)
+    return average
+
+def clearSensorData():
+    return {
+        "reads": 0,
+        "temperatureList": [],
+        "humidityList": []
+    }
 
 connect()
 debugPrint("after connect()")
 
-lastTime = 0
-count=0
+lastPublishTime = 0
+lastReadTime = 0
+sensorData = clearSensorData()
 while (True):
     currentTime = datetime.now().timestamp()
 
-    if (currentTime - lastTime >= updateInterval):
-        debugPrint("# Update Interval #")
-        publishSensor()
-        count += 1
-        lastTime = currentTime
+    if (currentTime - lastReadTime >= readInterval):
+        debugPrint("# Read Interval #")
+        humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT22_PIN)
         
+        sensorData["reads"] += 1
+        if (humidity):
+            sensorData["humidityList"].append(humidity)
+        if (temperature):
+            sensorData["temperatureList"].append(temperature)
+
+        lastReadTime = currentTime
+
+    if (currentTime - lastPublishTime >= publishInterval):
+        debugPrint("# Update Interval #")
+        publishSensor(sensorData)
+
+        sensorData = clearSensorData()
+        lastPublishTime = currentTime
+
     time.sleep(1)
