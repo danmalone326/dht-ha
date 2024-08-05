@@ -1,6 +1,6 @@
-#!/usr/bin/python3
+#!.venv/bin/python
 import Adafruit_DHT
-import numpy
+import math
 import os
 import time
 from datetime import datetime
@@ -201,18 +201,18 @@ def publishSensor(sensorData):
     publish(topic=valuesTopic,payload=payload)
 
 # remove outliers and return average of remaining
-# https://builtin.com/data-science/how-to-find-outliers-with-iqr
-# probably overkill, but was fun to learn
 def betterAverage(data):
-    data.sort()
-    q1, q3 = numpy.percentile(data, [25, 75])
-    iqr = q3 - q1
-    lowerBound = q1 - iqr*1.5
-    upperBound = q3 + iqr*1.5
-    outliersRemoved = []
-    for i in data:
-        if (i>=lowerBound and i<=upperBound):
-            outliersRemoved.append(i)
+    sortedData = sorted(data)
+    removeBottomPercent, removeTopPercent = (25, 75)
+    originalLen = len(sortedData)
+    bottomIndex = math.ceil(originalLen*removeBottomPercent/100)
+    topIndex = math.ceil(originalLen*removeTopPercent/100)
+
+    if (topIndex > bottomIndex):
+        outliersRemoved = sortedData[bottomIndex:topIndex]
+    else:
+        outliersRemoved = sortedData
+    
     average = sum(outliersRemoved)/len(outliersRemoved)
     return average
 
