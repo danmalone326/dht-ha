@@ -1,0 +1,59 @@
+#!.venv/bin/python
+
+import os
+import configparser
+
+config = configparser.ConfigParser()
+config.read(os.path.basename(__file__) + ".ini")
+
+print(config.sections())
+
+
+sensors = []
+defaultReadInterval = 5
+defaultPublishInterval = 60
+defaultFriendlyNamePrefix = "Friendly Name"
+for section in config.sections():
+    if (section.startswith("sensor-")):
+        thisSensor = {}
+        thisSensor["type"] = config[section]["type"]
+        thisSensor["pin"] = config[section]["pin"]
+        thisSensor["readInterval"] = config[section].get("readInterval",defaultReadInterval)
+        thisSensor["publishInterval"] = config[section].get("publishInterval",defaultPublishInterval)
+        thisSensor["friendlyNamePrefix"] = config[section].get("friendlyNamePrefix",defaultFriendlyNamePrefix)
+        sensors.append(thisSensor)
+        
+        
+print(sensors)
+
+# Topic: homeassistant/sensor/kc6wot-adsb-dht-Temperature/config
+# unique_id: kc6wot-adsb-dht-Temperature
+# state_topic: kc6wot-adsb/dht/sensor
+# availability_topic: kc6wot-adsb/dht/availability
+# payload_available: Online
+# payload_not_available: Offline
+# force_update: true
+# value_template: '{{value_json[''Analog''][''Temperature'']}}'
+# device:
+#   identifiers:
+#     - kc6wot-adsb-dht
+#   model: HomeAssistant Discovery for DHT22 on RPi
+#   manufacturer: Dan
+#   name: Garage RPi DHT22
+# device_class: temperature
+# unit_of_measurement: °C
+# name: Garage Temperature
+# platform: mqtt
+
+
+# Topic: kc6wot-adsb/dht/sensor
+# QoS: 0
+# Payload: Time: '2024-07-28T13:17:15'
+# Reads: 8
+# Analog:
+#   Temperature: 24.8
+#   Humidity: 40.8
+
+# Topic: kc6wot-adsb/dht/availability
+# QoS: 0, Retained
+# Payload: Online
