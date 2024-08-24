@@ -8,91 +8,150 @@ import json
 import socket
 import paho.mqtt.client as paho
 import configparser
+import sys
 
-debug = False
-
-config = configparser.ConfigParser()
-config.read(os.path.basename(__file__) + ".ini")
-mqttHostname = config["config"]["mqttHostname"]
-mqttUsername = config["config"]["mqttUsername"]
-mqttPassword = config["config"]["mqttPassword"]
-deviceFriendlyNamePrefix = config["config"]["deviceFriendlyNamePrefix"]
-
-# Define constants
-# Sensor type (Adafruit_DHT.DHT11 or Adafruit_DHT.DHT22)
-DHT_SENSOR = Adafruit_DHT.DHT22
-
-# Configure GPIO pins
-DHT22_PIN = 4
-
-# how often in seconds sensor should be read
-readInterval = 5
-
-# how often in seconds data should be published
-publishInterval = 60
-
-deviceFriendlyName = deviceFriendlyNamePrefix + " RPi DHT22"
-
-hostname = socket.gethostname()
-deviceID = hostname+"-dht"
-
-mqttTopicPrefix = hostname+"/dht"
-
-availabilityTopic = mqttTopicPrefix + "/availability"
-valuesTopic = mqttTopicPrefix + "/sensor"
-
-haTopicPrefix = "homeassistant/sensor"
-
-deviceAvailable = "Online"
-deviceNotAvailable = "Offline"
-
-mqttClient = None
-mqttClientID = deviceID
-
+debug = True
 def debugPrint(o):
     if debug:
         print(o)
 
 
+configFileName = os.path.basename(__file__) + ".ini"
+
+# default values
+hostname = socket.gethostname()
+defaultDeviceIDPrefix = hostname
+defaultDeviceIDSuffix = "-dht"
+defaultDeviceModel = "HomeAssistant Discovery for DHT11/22 on RPi"
+defaultDeviceManufacturer = "Dan"
+defaultDeviceNamePrefix = hostname
+defaultDeviceNameSuffix = " RPi DHT"
+
+defaultSensorIDPrefix = hostname
+defaultSensorNamePrefix = hostname
+defaultSensorReadInterval = 5
+defaultSensorPublishInterval = 60
+
+def configError(errorStr):
+    print(f"Config error: {errorStr}", file=sys.stderr)
+    exit(1)
+
+def readConfig():
+    config = configparser.ConfigParser()
+    config.read(configFileName)
+
+    if "mqtt" not in config.sections():
+        configError("Missing mqtt section.")
+        
+    mqtt = {}
+    mqtt["hostname"] = config.get("mqtt","hostname",fallback = None)
+    mqtt["username"] = config.get("mqtt","username",fallback = None)
+    mqtt["password"] = config.get("mqtt","password",fallback = None)
+
+    if (mqtt["hostname"] is None):
+        configError("Missing mqtt hostname.")
+    elif (mqtt["username"] is None):
+        configError("Missing mqtt username.")
+    elif (mqtt["password"] is None):
+        configError("Missing mqtt password.")
+
+    device = {}    
+    device["id"] = config.get("device","idPrefix",fallback = defaultDeviceIDPrefix) + defaultDeviceIDSuffix
+    device["model"] = defaultDeviceModel
+    device["manufacturer"] = defaultDeviceManufacturer
+    device["name"] = config.get("device","namePrefix",fallback = defaultDeviceNamePrefix) + defaultDeviceNameSuffix
+
+    sensors = []
+    for section in config.sections():
+        if (section.startswith("dht-")):
+            thisSection = config[section]
+            thisSensor = {}
+            thisSensor["type"] = thisSection.get("type")
+            thisSensor["pin"] = thisSection.get("pin")
+            if (thisSensor["type"] is None or thisSensor["pin"] is None):
+                configError(f'{section} missing required type and/or pin')
+
+            thisSensor["id"] = section
+            thisSensor["readInterval"] = int(thisSection.get("readInterval",defaultSensorReadInterval))
+            thisSensor["publishInterval"] = int(thisSection.get("publishInterval",defaultSensorPublishInterval))
+            thisSensor["namePrefix"] = thisSection.get("namePrefix",defaultSensorNamePrefix) + " " + section
+            sensors.append(thisSensor)
+    
+
+    return (mqtt, device, sensors)
+
+(mqtt, device, sensors) = readConfig()
+
+mqtt["client"] = None
+mqtt["clientID"] = device["id"]
+mqtt["connected"] = False
+
+device["haConfig"] = {
+        "identifiers":[
+            device["id"]
+        ],
+        "name": device["name"],
+        "model": device["model"],
+        "manufacturer": device["manufacturer"]
+    }
+
+topicPrefix = hostname+"/dht"
+availabilityTopic = topicPrefix + "/availability"
+valuesTopic = topicPrefix + "/values"
+haTopicPrefix = "homeassistant/sensor"
+deviceAvailableValue = "Online"
+deviceNotAvailableValue = "Offline"
+
+
 # callbacks
 def onConnect(client, userdata, flags, rc):
+    global mqtt
+    global sensors
+
     debugPrint("onConnect")
-    publishAvailability(availability=deviceAvailable)
-    publishDeviceHaConfig(sensorValueName="Temperature", sensorClass="temperature", sensorUnit="°C")
-    publishDeviceHaConfig(sensorValueName="Humidity", sensorClass="humidity", sensorUnit="%")
+    publishAvailability(availability=deviceAvailableValue)
+    
+    # 
+    for sensor in sensors:
+        publishSensorHaConfig(sensor)
+
+    mqtt["connected"] = True
 
 def onDisconnect(client, userdata, rc):
-    pass
+    mqtt["connected"] = False
 
 def onPublish(client, userdata, mid):
     debugPrint("onPublish")
 
-
+# setup and connect to mqtt service
 def connect():
-    global mqttClient
+    global mqtt
 
-    mqttClient = paho.Client(mqttClientID)
-    mqttClient.on_connect = onConnect
-    mqttClient.on_disconnect = onDisconnect
-    mqttClient.on_publish = onPublish
-    mqttClient.username_pw_set(username=mqttUsername, password=mqttPassword)
-    mqttClient.will_set(topic=availabilityTopic, payload=deviceNotAvailable, retain=True)
-    mqttClient.reconnect_delay_set()
+    mqtt["client"] = paho.Client(mqtt["clientID"])
+    # set callbacks
+    mqtt["client"].on_connect = onConnect
+    mqtt["client"].on_disconnect = onDisconnect
+    mqtt["client"].on_publish = onPublish
 
-    mqttClient.connect(host=mqttHostname)
-    mqttClient.loop_start()
+    # set last will and testament
+    mqtt["client"].will_set(topic=availabilityTopic, payload=deviceNotAvailableValue, retain=True)
 
+    mqtt["client"].reconnect_delay_set()
 
+    mqtt["client"].username_pw_set(username=mqtt["username"], password=mqtt["password"])
+    mqtt["client"].connect(host=mqtt["hostname"])
 
+    # starts a new thread, calls the loop method at regular intervals, handles re-connects automatically
+    mqtt["client"].loop_start()
+
+# publish a message
 def publish (topic, payload=None, qos=0, retain=False):
-    global mqttClient
+    global mqtt
 
     if (type(payload) is dict):
         convertedPayload = json.dumps(payload)
     else:
         convertedPayload = payload
-
-    result = mqttClient.publish(topic=topic, payload=convertedPayload, qos=qos, retain=retain)
 
     debugPrint(topic)
     if (qos != 0):
@@ -100,11 +159,12 @@ def publish (topic, payload=None, qos=0, retain=False):
     if (retain):
         debugPrint("retain: True")
     if(payload):
-        # print(json.dumps(payload,indent=4))
         debugPrint(convertedPayload)
     else:
         debugPrint('---DELETE---')
 
+    if not debug:
+        result = mqtt["client"].publish(topic=topic, payload=convertedPayload, qos=qos, retain=retain)
 
 # Home Assistant discovery config for sensor
 # {
@@ -128,31 +188,23 @@ def publish (topic, payload=None, qos=0, retain=False):
 #     "unit_of_measurement": "%"
 # }
 
-def deviceConfig():
-    return {
-        "identifiers":[
-            deviceID
-        ],
-        "name": deviceFriendlyName,
-        "model": "HomeAssistant Discovery for DHT22 on RPi",
-        "manufacturer": "Dan"
-    }
+def publishLogicalSensorHaConfig(sensor,logicalSensorName,sensorClass,sensorUnit):
+    global device
 
-def publishDeviceHaConfig(sensorValueName,sensorClass,sensorUnit):
-    uniqueID = deviceID + "-" + sensorValueName
+    uniqueID = device["id"] + "-" + sensor['id'] + "-" + logicalSensorName
 
     haConfigTopic = haTopicPrefix + "/" + uniqueID + "/config"
 
     configPayload = {
         "unique_id": uniqueID,
-        "name": deviceFriendlyNamePrefix + " " + sensorValueName,
+        "name": sensor["namePrefix"] + " " + logicalSensorName,
         "state_topic": valuesTopic,
         "availability_topic": availabilityTopic,
-        "payload_available": deviceAvailable,
-        "payload_not_available": deviceNotAvailable,
+        "payload_available": deviceAvailableValue,
+        "payload_not_available": deviceNotAvailableValue,
         "force_update": True,
-        "value_template": "{{value_json['Analog']['" + sensorValueName + "']}}",
-        "device": deviceConfig()
+        "value_template": "{{value_json['Analog']['" + logicalSensorName + "']}}",
+        "device": device["haConfig"]
     }
 
     if (sensorClass):
@@ -163,17 +215,27 @@ def publishDeviceHaConfig(sensorValueName,sensorClass,sensorUnit):
     
     publish(topic=haConfigTopic, payload=configPayload, retain=True)
 
-def unpublishDeviceHaConfig(sensorValueName,sensorClass,sensorUnit):
-    uniqueID = deviceID + "-" + sensorValueName
+def unpublishLogicalSensorHaConfig(sensor,logicalSensorName,sensorClass,sensorUnit):
+    global device
+    uniqueID = device["id"] + "-" + sensor['id'] + "-" + logicalSensorName
     haConfigTopic = haTopicPrefix + "/" + uniqueID + "/config"
     publish(topic=haConfigTopic, payload="")
 
 def publishAvailability(availability):
-    publish(topic=availabilityTopic,payload=deviceAvailable,retain=True)
+    publish(topic=availabilityTopic,payload=deviceAvailableValue,retain=True)
 
 def unpublishAvailability(availability):
     publish(topic=availabilityTopic,payload="",retain=True)
 
+def publishSensorHaConfig(sensor):
+    if (sensor["type"] == "DHT22"):
+        publishLogicalSensorHaConfig(sensor=sensor, logicalSensorName="Temperature", sensorClass="temperature", sensorUnit="°C")
+        publishLogicalSensorHaConfig(sensor=sensor, logicalSensorName="Humidity", sensorClass="humidity", sensorUnit="%")
+
+def unpublishSensorHaConfig(sensor):
+    if (sensor["type"] == "DHT22"):
+        publishLogicalSensorHaConfig(sensor=sensor, logicalSensorName="Temperature", sensorClass="temperature", sensorUnit="°C")
+        publishLogicalSensorHaConfig(sensor=sensor, logicalSensorName="Humidity", sensorClass="humidity", sensorUnit="%")
 
 # Sensor values message
 # {
@@ -183,15 +245,15 @@ def unpublishAvailability(availability):
 #         "Humidity": 33.1
 #     }
 # }
-def publishSensor(sensorData):
+def publishSensor(sensor):
     publishTime = datetime.now().isoformat(timespec="seconds")
 
-    temperature = betterAverage(sensorData["temperatureList"])
-    humidity = betterAverage(sensorData["humidityList"])
+    temperature = betterAverage(sensor["data"]["temperatureList"])
+    humidity = betterAverage(sensor["data"]["humidityList"])
 
     payload = {
         "Time": publishTime,
-        "Reads": sensorData["reads"],
+        "Reads": sensor["data"]["reads"],
         "Analog": {
             "Temperature": round(temperature,1),
             "Humidity": round(humidity,1)
@@ -216,39 +278,56 @@ def betterAverage(data):
     average = sum(outliersRemoved)/len(outliersRemoved)
     return average
 
-def clearSensorData():
-    return {
-        "reads": 0,
-        "temperatureList": [],
-        "humidityList": []
-    }
+def resetSensorData(sensor):
+    debugPrint("resetSensorData")
+    if (sensor["type"] == "DHT22"):
+        sensor["data"] = {
+            "reads": 0,
+            "temperatureList": [],
+            "humidityList": []
+        }
+
+def readSensor(sensor):
+    debugPrint("readSensor")
+    if (sensor["type"] == "DHT22"):
+        if debug:
+            humidity = 22.22
+            temperature = 33.33
+        else: 
+            humidity, temperature = Adafruit_DHT.read_retry(Adafruit_DHT.DHT22, sensor["pin"])
+
+        sensor["data"]["reads"] += 1
+        if (humidity):
+            sensor["data"]["humidityList"].append(humidity)
+        if (temperature):
+            sensor["data"]["temperatureList"].append(temperature)
 
 connect()
 debugPrint("after connect()")
 
-lastPublishTime = 0
-lastReadTime = 0
-sensorData = clearSensorData()
+# initialize sensor counters and data
+currentTime = datetime.now().timestamp()
+for sensor in sensors:
+    sensor["lastPublishTime"] = currentTime
+    sensor["lastReadTime"] = 0
+    resetSensorData(sensor)
+
 while (True):
     currentTime = datetime.now().timestamp()
 
-    if (currentTime - lastReadTime >= readInterval):
-        debugPrint("# Read Interval #")
-        humidity, temperature = Adafruit_DHT.read_retry(DHT_SENSOR, DHT22_PIN)
-        
-        sensorData["reads"] += 1
-        if (humidity):
-            sensorData["humidityList"].append(humidity)
-        if (temperature):
-            sensorData["temperatureList"].append(temperature)
+    if mqtt["connected"]:
+        for sensor in sensors:
+            if (currentTime - sensor["lastReadTime"] >= sensor["readInterval"]):
+                debugPrint("# Read Interval #")
+                readSensor(sensor)
 
-        lastReadTime = currentTime
+                sensor["lastReadTime"] = currentTime
 
-    if (currentTime - lastPublishTime >= publishInterval):
-        debugPrint("# Update Interval #")
-        publishSensor(sensorData)
+            if (currentTime - sensor["lastPublishTime"] >= sensor["publishInterval"]):
+                debugPrint("# Update Interval #")
+                publishSensor(sensor)
 
-        sensorData = clearSensorData()
-        lastPublishTime = currentTime
+                sensor["lastPublishTime"] = currentTime
+                resetSensorData(sensor)
 
     time.sleep(1)
