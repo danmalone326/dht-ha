@@ -10,7 +10,8 @@ import paho.mqtt.client as paho
 import configparser
 import sys
 
-debug = True
+debug = False
+debugReadSensor = False
 def debugPrint(o):
     if debug:
         print(o)
@@ -289,11 +290,11 @@ def resetSensorData(sensor):
 def readSensor(sensor):
     debugPrint("readSensor")
     if (sensor["type"] == "DHT22"):
-        if debug:
+        if not debug or debugReadSensor:
+            humidity, temperature = Adafruit_DHT.read_retry(Adafruit_DHT.DHT22, sensor["pin"])
+        else: 
             humidity = 22.22
             temperature = 33.33
-        else: 
-            humidity, temperature = Adafruit_DHT.read_retry(Adafruit_DHT.DHT22, sensor["pin"])
 
         sensor["data"]["reads"] += 1
         if (humidity):
