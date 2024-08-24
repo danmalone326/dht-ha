@@ -20,12 +20,10 @@ configFileName = os.path.basename(__file__) + ".ini"
 
 # default values
 hostname = socket.gethostname()
-defaultDeviceIDPrefix = hostname
-defaultDeviceIDSuffix = "-dht"
+defaultDeviceID = hostname + "-dht"
 defaultDeviceModel = "HomeAssistant Discovery for DHT11/22 on RPi"
 defaultDeviceManufacturer = "Dan"
-defaultDeviceNamePrefix = hostname
-defaultDeviceNameSuffix = " RPi DHT"
+defaultDeviceName = hostname + " RPi DHT"
 
 defaultSensorIDPrefix = hostname
 defaultSensorNamePrefix = hostname
@@ -56,14 +54,14 @@ def readConfig():
         configError("Missing mqtt password.")
 
     device = {}    
-    device["id"] = config.get("device","idPrefix",fallback = defaultDeviceIDPrefix) + defaultDeviceIDSuffix
+    device["id"] = config.get("device","id",fallback = defaultDeviceID)
     device["model"] = defaultDeviceModel
     device["manufacturer"] = defaultDeviceManufacturer
-    device["name"] = config.get("device","namePrefix",fallback = defaultDeviceNamePrefix) + defaultDeviceNameSuffix
+    device["name"] = config.get("device","name",fallback = defaultDeviceName) 
 
     sensors = []
     for section in config.sections():
-        if (section.startswith("dht-")):
+        if (section.startswith("sensor-")):
             thisSection = config[section]
             thisSensor = {}
             thisSensor["type"] = thisSection.get("type")
@@ -71,10 +69,10 @@ def readConfig():
             if (thisSensor["type"] is None or thisSensor["pin"] is None):
                 configError(f'{section} missing required type and/or pin')
 
-            thisSensor["id"] = section
+            thisSensor["id"] = thisSection.get("id", section)
             thisSensor["readInterval"] = int(thisSection.get("readInterval",defaultSensorReadInterval))
             thisSensor["publishInterval"] = int(thisSection.get("publishInterval",defaultSensorPublishInterval))
-            thisSensor["namePrefix"] = thisSection.get("namePrefix",defaultSensorNamePrefix) + " " + section
+            thisSensor["name"] = thisSection.get("name",defaultSensorNamePrefix + " " + section)
             sensors.append(thisSensor)
     
 
@@ -97,7 +95,7 @@ device["haConfig"] = {
 
 topicPrefix = hostname+"/dht"
 availabilityTopic = topicPrefix + "/availability"
-valuesTopic = topicPrefix + "/values"
+valuesTopicPrefix = topicPrefix + "/values"
 haTopicPrefix = "homeassistant/sensor"
 deviceAvailableValue = "Online"
 deviceNotAvailableValue = "Offline"
@@ -197,8 +195,8 @@ def publishLogicalSensorHaConfig(sensor,logicalSensorName,sensorClass,sensorUnit
 
     configPayload = {
         "unique_id": uniqueID,
-        "name": sensor["namePrefix"] + " " + logicalSensorName,
-        "state_topic": valuesTopic,
+        "name": sensor["name"] + " " + logicalSensorName,
+        "state_topic": valuesTopicPrefix + "/" + sensor['id'],
         "availability_topic": availabilityTopic,
         "payload_available": deviceAvailableValue,
         "payload_not_available": deviceNotAvailableValue,
@@ -259,6 +257,7 @@ def publishSensor(sensor):
             "Humidity": round(humidity,1)
         }
     }
+    valuesTopic = valuesTopicPrefix + "/" + sensor['id']
 
     publish(topic=valuesTopic,payload=payload)
 
