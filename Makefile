@@ -5,6 +5,8 @@ install: .venv
 .venv/touchfile: requirements.txt
 	test -d .venv || virtualenv .venv
 	. .venv/bin/activate; pip install -Ur requirements.txt
+	cp -n dht-ha.example.ini dht-ha.ini
+	chmod og=,u=rw dht-ha.ini
 	touch .venv/touchfile
 
 clean:
