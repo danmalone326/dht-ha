@@ -1,5 +1,6 @@
 #!.venv/bin/python
-import Adafruit_DHT
+import adafruit_dht
+import board
 import math
 import os
 import time
@@ -10,12 +11,16 @@ import paho.mqtt.client as paho
 import configparser
 import sys
 
-debug = False
-debugReadSensor = False
+debug = True
+debugReadSensor = True
 def debugPrint(o):
     if debug:
         print(o)
 
+pin = {"0": board.D0, "1": board.D1, "2": board.D2, "3": board.D3, "4": board.D4, "5": board.D5,
+       "6": board.D6, "7": board.D7, "8": board.D8, "9": board.D9, "10": board.D10,
+       "11": board.D11, "12": board.D12, "13": board.D13, "14": board.D14, "15": board.D15,
+       "16": board.D16, "17": board.D17, "18": board.D18, "19": board.D19, "20": board.D20}
 
 configFileName = os.path.basename(__file__) + ".ini"
 
@@ -66,7 +71,7 @@ def readConfig():
             thisSection = config[section]
             thisSensor = {}
             thisSensor["type"] = thisSection.get("type")
-            thisSensor["pin"] = thisSection.get("pin")
+            thisSensor["pin"] = pin[thisSection.get("pin")]
             if (thisSensor["type"] is None or thisSensor["pin"] is None):
                 configError(f'{section} missing required type and/or pin')
 
@@ -289,28 +294,36 @@ def resetSensorData(sensor):
 
 def readSensor(sensor):
     debugPrint("readSensor")
-    if (sensor["type"] == "DHT22"):
-        if not debug or debugReadSensor:
-            humidity, temperature = Adafruit_DHT.read_retry(Adafruit_DHT.DHT22, sensor["pin"])
-        else: 
-            humidity = 22.22
-            temperature = 33.33
+    try: 
+        if (sensor["type"] == "DHT22"):
+            if not debug or debugReadSensor:
+                # dhtDevice = adafruit_dht.DHT22(sensor["pin"])
+                temperature = sensor["object"].temperature
+                humidity = sensor["object"].humidity
+            else: 
+                humidity = 22.22
+                temperature = 33.33
 
-        sensor["data"]["reads"] += 1
-        if (humidity):
-            sensor["data"]["humidityList"].append(humidity)
-        if (temperature):
-            sensor["data"]["temperatureList"].append(temperature)
+            sensor["data"]["reads"] += 1
+            if (humidity):
+                sensor["data"]["humidityList"].append(humidity)
+            if (temperature):
+                sensor["data"]["temperatureList"].append(temperature)
+    except Exception as e: 
+        print(e) 
 
 connect()
 debugPrint("after connect()")
 
-# initialize sensor counters and data
+# initialize sensor
 currentTime = datetime.now().timestamp()
 for sensor in sensors:
     sensor["lastPublishTime"] = currentTime
     sensor["lastReadTime"] = 0
     resetSensorData(sensor)
+
+    if (sensor["type"] == "DHT22"):
+        sensor["object"] = adafruit_dht.DHT22(sensor["pin"])
 
 while (True):
     currentTime = datetime.now().timestamp()
