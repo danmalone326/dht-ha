@@ -1,5 +1,5 @@
 # systemd service file
-# update the workingDirectory
+# update the User and workingDirectory below
 # place this file in /etc/systemd/system/
 # then run the following
 # * sudo systemctl daemon-reload
