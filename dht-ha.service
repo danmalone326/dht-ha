@@ -1,9 +1,11 @@
 # systemd service file
-# update the User and workingDirectory below
-# place this file in /etc/systemd/system/
-# then run the following
-# * sudo systemctl daemon-reload
-# * sudo systemctl enable dht-ha.service
+# copy this file to /etc/systemd/system/
+# if needed update the User, workingDirectory and ExecStart below
+# then run the following:
+#  sudo systemctl daemon-reload
+#  sudo systemctl enable dht-ha.service
+#  sudo systemctl start dht-ha.service
+#  sudo systemctl status dht-ha.service
 
 [Unit]
 Description=HomeAssistant Discovery for DHT11/22
