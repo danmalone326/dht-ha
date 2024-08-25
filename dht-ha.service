@@ -1,14 +1,19 @@
 # systemd service file
-# place in /etc/systemd/system/
+# update the User and workingDirectory below
+# place this file in /etc/systemd/system/
+# then run the following
+# * sudo systemctl daemon-reload
+# * sudo systemctl enable dht-ha.service
+
 [Unit]
-Description=DHT22 MQTT Home Assistant Discovery Service
+Description=HomeAssistant Discovery for DHT11/22
 Requires=network.target
 
 [Service]
 Type=idle
 User=pi
 WorkingDirectory=/home/pi/dht-ha
-ExecStart=/home/pi/dht-ha/dht-ha
+ExecStart=dht-ha
 Restart=always
 
 [Install]
