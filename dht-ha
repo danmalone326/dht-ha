@@ -11,7 +11,7 @@ import paho.mqtt.client as paho
 import configparser
 import sys
 
-debug = True
+debug = False
 debugReadSensor = True
 def debugPrint(o):
     if debug:
@@ -310,7 +310,7 @@ def readSensor(sensor):
             if (temperature):
                 sensor["data"]["temperatureList"].append(temperature)
     except Exception as e: 
-        print(e) 
+        debugPrint(e) 
 
 connect()
 debugPrint("after connect()")
@@ -322,8 +322,9 @@ for sensor in sensors:
     sensor["lastReadTime"] = 0
     resetSensorData(sensor)
 
-    if (sensor["type"] == "DHT22"):
-        sensor["object"] = adafruit_dht.DHT22(sensor["pin"])
+    if not debug or debugReadSensor:
+        if (sensor["type"] == "DHT22"):
+            sensor["object"] = adafruit_dht.DHT22(sensor["pin"])
 
 while (True):
     currentTime = datetime.now().timestamp()
