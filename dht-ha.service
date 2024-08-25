@@ -13,7 +13,7 @@ Requires=network.target
 Type=idle
 User=pi
 WorkingDirectory=/home/pi/dht-ha
-ExecStart=dht-ha
+ExecStart=/home/pi/dht-ha/dht-ha
 Restart=always
 
 [Install]
