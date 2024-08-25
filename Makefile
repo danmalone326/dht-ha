@@ -1,4 +1,7 @@
-install: .venv
+whoami := $(shell whoami)
+pwd := $(shell pwd)
+
+install: .venv dht-ha.service
 
 .venv: .venv/touchfile
 
@@ -8,6 +11,11 @@ install: .venv
 	cp -n dht-ha.example.ini dht-ha.ini
 	chmod og=,u=rw dht-ha.ini
 	touch .venv/touchfile
+
+dht-ha.service: dht-ha.service.template
+	cp dht-ha.service.template dht-ha.service
+	sed -i -e "s|<USER>|"$(whoami)"|g" -e "s|<WORKDIR>|"$(pwd)"|g" dht-ha.service
+
 
 clean:
 	rm -rf .venv

@@ -13,9 +13,9 @@ Requires=network.target
 
 [Service]
 Type=idle
-User=pi
-WorkingDirectory=/home/pi/dht-ha
-ExecStart=/home/pi/dht-ha/dht-ha
+User=<USER>
+WorkingDirectory=<WORKDIR>
+ExecStart=<WORKDIR>/dht-ha
 Restart=always
 
 [Install]

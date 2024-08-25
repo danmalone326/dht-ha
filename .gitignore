@@ -1,6 +1,6 @@
 *.ini
 !*.example.ini
-
+dht-ha.service
 
 # stndard python stuff below
 
